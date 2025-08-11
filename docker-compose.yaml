@@ -1,0 +1,145 @@
+version: '3.8'
+
+services:
+  # MySQL数据库
+  mysql:
+    image: mysql:5.7
+    container_name: mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root123
+      MYSQL_DATABASE: microservices
+      MYSQL_USER: app
+      MYSQL_PASSWORD: app123
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - microservices-network
+
+  # LDAP服务
+  ldap:
+    image: osixia/openldap:1.5.0
+    container_name: ldap
+    environment:
+      LDAP_ORGANISATION: "Demo Company"
+      LDAP_DOMAIN: "demo.com"
+      LDAP_ADMIN_PASSWORD: admin123
+      LDAP_CONFIG_PASSWORD: config123
+    ports:
+      - "389:389"
+      - "636:636"
+    volumes:
+      - ldap_data:/var/lib/ldap
+      - ./ldap/ldif:/container/service/slapd/assets/config/bootstrap/ldif/custom
+    networks:
+      - microservices-network
+
+  # Consul (配置中心和服务发现)
+  consul:
+    image: consul:1.15
+    container_name: consul
+    ports:
+      - "8500:8500"
+    command: agent -server -bootstrap-expect=1 -ui -client=0.0.0.0
+    volumes:
+      - consul_data:/consul/data
+    networks:
+      - microservices-network
+
+  # UAA用户认证服务 - 使用预构建镜像
+  uaa:
+    image: golang:1.21-alpine
+    container_name: uaa
+    working_dir: /app
+    environment:
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USER=app
+      - DB_PASSWORD=app123
+      - DB_NAME=microservices
+      - CONSUL_HOST=consul
+      - CONSUL_PORT=8500
+      - JWT_SECRET=your-super-secret-jwt-key
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
+      - LDAP_HOST=ldap
+      - LDAP_PORT=389
+      - LDAP_BASE_DN=dc=demo,dc=com
+      - LDAP_BIND_DN=cn=admin,dc=demo,dc=com
+      - LDAP_BIND_PASSWORD=admin123
+      - GOPROXY=https://goproxy.cn,https://goproxy.io,direct
+      - GOSUMDB=sum.golang.google.cn
+    volumes:
+      - ./uaa:/app
+    ports:
+      - "8080:8080"
+    depends_on:
+      - mysql
+      - ldap
+      - consul
+    networks:
+      - microservices-network
+    command: sh -c "go mod download && go run main.go"
+
+  # 产品服务 - 使用预构建镜像
+  product:
+    image: golang:1.21-alpine
+    container_name: product
+    working_dir: /app
+    environment:
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USER=app
+      - DB_PASSWORD=app123
+      - DB_NAME=microservices
+      - CONSUL_HOST=consul
+      - CONSUL_PORT=8500
+      - UAA_SERVICE_URL=http://uaa:8080
+      - JWT_SECRET=your-super-secret-jwt-key
+      - GOPROXY=https://goproxy.cn,https://goproxy.io,direct
+      - GOSUMDB=sum.golang.google.cn
+    volumes:
+      - ./product:/app
+    ports:
+      - "8081:8081"
+    depends_on:
+      - mysql
+      - consul
+      - uaa
+    networks:
+      - microservices-network
+    command: sh -c "go mod download && go run main.go"
+
+  # API网关 - 使用预构建镜像
+  gateway:
+    image: golang:1.21-alpine
+    container_name: gateway
+    working_dir: /app
+    environment:
+      - CONSUL_HOST=consul
+      - CONSUL_PORT=8500
+      - UAA_SERVICE_URL=http://uaa:8080
+      - GOPROXY=https://goproxy.cn,https://goproxy.io,direct
+      - GOSUMDB=sum.golang.google.cn
+    volumes:
+      - ./gateway:/app
+    ports:
+      - "7573:7573"
+    depends_on:
+      - consul
+      - uaa
+      - product
+    networks:
+      - microservices-network
+    command: sh -c "go mod download && go run main.go"
+
+volumes:
+  mysql_data:
+  ldap_data:
+  consul_data:
+
+networks:
+  microservices-network:
+    driver: bridge 
