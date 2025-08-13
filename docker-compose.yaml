@@ -20,19 +20,16 @@ services:
 
   # LDAP服务
   ldap:
-    image: osixia/openldap:1.5.0
+    image: osixia/openldap:1.3.0
     container_name: ldap
     environment:
-      LDAP_ORGANISATION: "Demo Company"
-      LDAP_DOMAIN: "demo.com"
+      LDAP_ORGANISATION: Example Inc.
+      LDAP_DOMAIN: example.com
       LDAP_ADMIN_PASSWORD: admin123
-      LDAP_CONFIG_PASSWORD: config123
     ports:
       - "389:389"
-      - "636:636"
     volumes:
       - ldap_data:/var/lib/ldap
-      - ./ldap/ldif:/container/service/slapd/assets/config/bootstrap/ldif/custom
     networks:
       - microservices-network
 

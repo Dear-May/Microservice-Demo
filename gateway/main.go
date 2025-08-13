@@ -6,7 +6,6 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/hashicorp/consul/api"
@@ -16,6 +15,7 @@ var consulClient *api.Client
 
 func main() {
 	initConsul()
+	registerService()
 
 	r := gin.Default()
 
@@ -51,6 +51,26 @@ func initConsul() {
 	}
 }
 
+func registerService() {
+	registration := &api.AgentServiceRegistration{
+		ID:      "gateway",
+		Name:    "gateway",
+		Port:    7573,
+		Address: "gateway",
+		Check: &api.AgentServiceCheck{
+			HTTP:                           "http://gateway:7573/health",
+			Interval:                       "10s",
+			Timeout:                        "5s",
+			DeregisterCriticalServiceAfter: "30s",
+		},
+	}
+
+	err := consulClient.Agent().ServiceRegister(registration)
+	if err != nil {
+		log.Printf("服务注册失败: %v", err)
+	}
+}
+
 // 代理到指定服务
 func proxyToService(serviceName string) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -69,17 +89,6 @@ func proxyToService(serviceName string) gin.HandlerFunc {
 		}
 
 		proxy := httputil.NewSingleHostReverseProxy(target)
-
-		// 修改请求路径 - 移除服务名前缀
-		originalPath := c.Request.URL.Path
-		if serviceName == "uaa" {
-			c.Request.URL.Path = strings.TrimPrefix(originalPath, "/auth")
-		} else if serviceName == "product" {
-			c.Request.URL.Path = strings.TrimPrefix(originalPath, "/products")
-		}
-		if c.Request.URL.Path == "" {
-			c.Request.URL.Path = "/"
-		}
 
 		// 转发请求
 		proxy.ServeHTTP(c.Writer, c.Request)

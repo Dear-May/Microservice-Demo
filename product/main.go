@@ -50,6 +50,13 @@ var (
 )
 
 func main() {
+	systemToken := generateSystemToken()
+	err := os.Setenv("SYSTEM_TOKEN", systemToken)
+	if err != nil {
+		return
+	}
+	log.Println("系统令牌:", os.Getenv("SYSTEM_TOKEN"))
+
 	// 初始化JWT密钥
 	jwtSecret = []byte(os.Getenv("JWT_SECRET"))
 
@@ -79,6 +86,19 @@ func main() {
 
 	log.Println("产品服务启动在端口 8081")
 	r.Run(":8081")
+}
+
+// 添加系统令牌生成函数
+func generateSystemToken() string {
+	claims := jwt.MapClaims{
+		"system": "health_checker",
+		"exp":    time.Now().Add(10 * 365 * 24 * time.Hour).Unix(), // 10年有效期
+		"role":   "SYSTEM",
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenString, _ := token.SignedString(jwtSecret)
+	return tokenString
 }
 
 func initDB() {
@@ -117,7 +137,9 @@ func registerService() {
 		Port:    8081,
 		Address: "product",
 		Check: &api.AgentServiceCheck{
-			HTTP:                           "http://product:8081/health",
+			HTTP: "http://product:8081/health",
+			Header: map[string][]string{
+				"Authorization": {"Bearer " + strings.TrimSpace(os.Getenv("SYSTEM_TOKEN"))}},
 			Interval:                       "10s",
 			Timeout:                        "5s",
 			DeregisterCriticalServiceAfter: "30s",
@@ -133,6 +155,12 @@ func registerService() {
 // 认证中间件
 func authMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// 豁免健康检查路由
+		if c.Request.URL.Path == "/health" {
+			c.Next()
+			return
+		}
+
 		tokenString := c.GetHeader("Authorization")
 		if tokenString == "" {
 			c.JSON(401, gin.H{"error": "缺少认证令牌"})

@@ -141,6 +141,7 @@ func registerService() {
 }
 
 func login(c *gin.Context) {
+	log.Println("用户登录")
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": "无效的请求参数"})
